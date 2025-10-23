@@ -10,7 +10,7 @@ from heimdallr.config.definition import (
     SUFFIX_WECOM_AGENT_ID,
     SUFFIX_WECOM_CORP_ID,
     SUFFIX_WECOM_KEY,
-    SUFFIX_WECOM_SECRET,
+    SUFFIX_WECOM_SECRET, SUFFIX_WECOM_PROXY,
 )
 from heimdallr.exception import WecomException
 
@@ -95,17 +95,25 @@ class WecomWebhook(Channel):
 class WecomApp(Channel):
     def __init__(self, name: str, type: str):
         super().__init__(name, type)
-        self.base_url: str = "https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token="
+        self.host: str = "https://qyapi.weixin.qq.com"
         self.corp_id: str
         self.secret: str
         self.access_token: str
         self.agent_id: int
         self._build_channel()
 
+    @property
+    def base_url(self) -> str:
+        return f"{self.host}/cgi-bin/message/send?access_token="
+
     def _build_channel(self) -> None:
         self.corp_id = get_config_str(self.get_name(), SUFFIX_WECOM_CORP_ID, "")
         self.secret = get_config_str(self.get_name(), SUFFIX_WECOM_SECRET, "")
         self.agent_id = int(get_config_str(self.get_name(), SUFFIX_WECOM_AGENT_ID, ""))
+        wecom_proxy = get_config_str(self.get_name(), SUFFIX_WECOM_PROXY, "")
+        logger.info(f"获取企业微信代理配置: {wecom_proxy}")
+        if wecom_proxy != "":
+            self.host: str = wecom_proxy
 
         if self.corp_id == "" or self.secret == "":
             raise WecomException("corp id or secret not set")
@@ -114,7 +122,7 @@ class WecomApp(Channel):
         if not isinstance(message, WecomAppMessage):
             raise WecomException("Invalid message type")
         # get access token
-        auth_url = f"https://qyapi.weixin.qq.com/cgi-bin/gettoken?corpid={self.corp_id}&corpsecret={self.secret}"
+        auth_url = f"{self.host}/cgi-bin/gettoken?corpid={self.corp_id}&corpsecret={self.secret}"
         rs = requests.get(auth_url, timeout=5).json()
         if rs["errcode"] == 0:
             self.access_token = rs["access_token"]
@@ -124,6 +132,7 @@ class WecomApp(Channel):
         message.agent_id = self.agent_id
         msg = message.render_message()
         url = f"{self.base_url}{self.access_token}"
+        logger.info(f"发送消息请求url: {url}")
         rs = requests.post(
             url,
             data=msg,
